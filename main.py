@@ -6,7 +6,7 @@ import time
 import random
 
 # ===== 설정 =====
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1488881326928167052/WcyGkIE45q1bvFi86w7PbcVQcYvz1XRPEZLkfJobnoVA-i9kKctSSwF4wCEe8sd1kErb"
+DISCORD_WEBHOOK_URL = "DISCORD_WEBHOOK_URL"
 
 KEYWORDS = [
     "뉴진스",
