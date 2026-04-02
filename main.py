@@ -6,7 +6,8 @@ import time
 import random
 
 # ===== 설정 =====
-DISCORD_WEBHOOK_URL = "DISCORD_WEBHOOK_URL"
+import os
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 KEYWORDS = [
     "뉴진스",
