@@ -4,6 +4,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 import requests
 import time
 import random
+import os
 
 # ===== 설정 =====
 DISCORD_WEBHOOK_URLS = [
