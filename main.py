@@ -6,8 +6,10 @@ import time
 import random
 
 # ===== 설정 =====
-import os
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_URLS = [
+    "DISCORD_WEBHOOK_URL_1",  # 서버 1 웹훅
+    "DISCORD_WEBHOOK_URL_2",  # 서버 2 웹훅
+]
 
 KEYWORDS = [
     "뉴진스",
@@ -78,10 +80,11 @@ session = requests.Session()
 
 def send_discord(message):
     data = {"content": message}
-    try:
-        requests.post(DISCORD_WEBHOOK_URL, json=data)
-    except Exception as e:
-        print(f"디스코드 전송 오류: {e}")
+    for url in DISCORD_WEBHOOK_URLS:
+        try:
+            requests.post(url, json=data)
+        except Exception as e:
+            print(f"디스코드 전송 오류 ({url[:40]}...): {e}")
 
 def send_discord_embed(keyword, name, price, link, image_url):
     data = {
@@ -98,10 +101,11 @@ def send_discord_embed(keyword, name, price, link, image_url):
     }
     if not image_url:
         del data["embeds"][0]["image"]
-    try:
-        requests.post(DISCORD_WEBHOOK_URL, json=data)
-    except Exception as e:
-        print(f"디스코드 전송 오류: {e}")
+    for url in DISCORD_WEBHOOK_URLS:
+        try:
+            requests.post(url, json=data)
+        except Exception as e:
+            print(f"디스코드 전송 오류 ({url[:40]}...): {e}")
 
 def search_bunjang(keyword):
     """번개장터 API로 키워드 검색 후 새 상품 반환 (429 처리 + 지수 백오프)"""
