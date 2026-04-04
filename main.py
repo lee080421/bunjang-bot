@@ -7,9 +7,11 @@ import random
 
 # ===== 설정 =====
 DISCORD_WEBHOOK_URLS = [
-    "DISCORD_WEBHOOK_URL_1",  # 서버 1 웹훅
-    "DISCORD_WEBHOOK_URL_2",  # 서버 2 웹훅
+    os.environ.get("DISCORD_WEBHOOK_URL_1"),  # 서버 1 웹훅
+    os.environ.get("DISCORD_WEBHOOK_URL_2"),  # 서버 2 웹훅
 ]
+
+DISCORD_WEBHOOK_URLS = [url for url in DISCORD_WEBHOOK_URLS if url]
 
 KEYWORDS = [
     "뉴진스",
