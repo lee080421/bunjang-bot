@@ -17,9 +17,6 @@ DISCORD_WEBHOOK_URLS = [url for url in DISCORD_WEBHOOK_URLS if url]
 
 KEYWORDS = [
     "뉴진스",
-    "뉴진스 배너",
-    "뉴진스 코카콜라",
-    "뉴진스 배그"
 ]
 
 CHECK_INTERVAL_MIN = 28
@@ -129,7 +126,7 @@ def send_discord_embed(keyword, name, price, link, image_url, index):
         post_discord(url, data)
 
 def search_bunjang(keyword):
-    url = f"https://api.bunjang.co.kr/api/1/find_v2.json?q={keyword}&n=30&page=0&order=date"
+    url = f"https://api.bunjang.co.kr/api/1/find_v2.json?q={keyword}&n=50&page=0&order=date"
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
