@@ -184,7 +184,7 @@ def monitor():
     for keyword in KEYWORDS:
         search_bunjang(keyword)
         time.sleep(random.uniform(KEYWORD_DELAY_MIN, KEYWORD_DELAY_MAX))
-    print("감시 시작!\n")
+    print("감시 시작!")
 
     while True:
         # 가끔 긴 휴식 (걸리면 이번 사이클은 휴식만)
