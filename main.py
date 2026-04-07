@@ -1,5 +1,5 @@
 import sys
-sys.stdout.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
 import requests
 import time
@@ -211,8 +211,11 @@ def monitor():
         time.sleep(interval)
 
 def shutdown(signum, frame):
-    print(f"\n신호 수신({signum}). 봇 종료")
-    send_discord("🛑 봇이 종료되었습니다.")
+    def shutdown(signum, frame):
+    print("=" * 40, flush=True)
+    print(f"🛑 봇 종료 (신호: {signum})", flush=True)
+    print("=" * 40, flush=True)
+    send_discord(f"🛑 봇이 종료되었습니다. (신호: {signum})")
     sys.exit(0)
 
 if __name__ == "__main__":
