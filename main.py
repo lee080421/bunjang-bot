@@ -211,13 +211,12 @@ def monitor():
         time.sleep(interval)
 
 def shutdown(signum, frame):
-    def shutdown(signum, frame):
+   def shutdown(signum, frame):
     print("=" * 40, flush=True)
     print(f"🛑 봇 종료 (신호: {signum})", flush=True)
     print("=" * 40, flush=True)
     send_discord(f"🛑 봇이 종료되었습니다. (신호: {signum})")
     sys.exit(0)
-
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URLS:
         print("⚠️ 경고: 웹훅 URL이 하나도 설정되지 않았습니다! 환경변수를 확인하세요.")
