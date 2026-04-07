@@ -1,6 +1,6 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
-
+import signal
 import requests
 import time
 import random
@@ -188,8 +188,18 @@ def monitor():
         time.sleep(interval)
 
 if __name__ == "__main__":
+  def shutdown(signum, frame):
+    print(f"\n신호 수신({signum}). 봇 종료")
+    send_discord("🛑 봇이 종료되었습니다.")
+    sys.exit(0)
+
+if __name__ == "__main__":
+    # SIGTERM(클라우드 종료), SIGINT(Ctrl+C) 모두 처리
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
     try:
         monitor()
-    except KeyboardInterrupt:
-        print("\n봇 종료")
-        send_discord("🛑 봇이 종료되었습니다.")
+    except Exception as e:
+        print(f"예기치 못한 오류: {e}")
+        send_discord(f"⚠️ 봇이 오류로 종료되었습니다: {e}")
