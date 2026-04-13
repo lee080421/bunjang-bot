@@ -1,6 +1,7 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
+import re
 import requests
 import time
 import random
@@ -26,9 +27,9 @@ KEYWORD_DELAY_MAX = 2.5
 LONG_BREAK_CHANCE = 0.1
 LONG_BREAK_MIN = 60
 MAX_RETRIES = 5
-MAX_SEEN_PRODUCTS = 2000     # seen_products 최대 크기
-DISCORD_TIMEOUT = 10         # 디스코드 요청 타임아웃
-DISCORD_RETRIES = 2          # 디스코드 전송 재시도 횟수
+MAX_SEEN_PRODUCTS = 2000
+DISCORD_TIMEOUT = 10
+DISCORD_RETRIES = 2
 # ================
 
 USER_AGENTS = [
@@ -72,27 +73,62 @@ def get_headers():
         headers["sec-ch-ua-platform"] = '"Windows"'
     return headers
 
-# seen_products: set + deque로 최대 크기 제한 (메모리 누수 방지)
-seen_products = set()
-seen_order = deque(maxlen=MAX_SEEN_PRODUCTS)
 
-# 매물 카운터 (봇 시작 후 알림 보낸 매물 순번)
+# ─── seen_products: pid 기반 중복 방지 ───
+seen_products = set()
+seen_order = deque()
+
+# ─── seen_signatures: (정규화 제목 + 가격) 기반 재등록 방지 ───
+seen_signatures = set()
+sig_order = deque()
+
 item_counter = 0
 
+# Session: 기본 헤더 누적 방지를 위해 headers를 매 요청마다 명시적으로 전달
 session = requests.Session()
+session.headers.clear()
 
-def add_seen(product_id):
-    """seen_products에 추가하면서 최대 크기 유지"""
+
+# ─── 유틸 함수 ───
+
+def normalize_title(name: str) -> str:
+    """공백·특수문자 제거 후 소문자화 → 재등록 감지용"""
+    return re.sub(r'[\s\W_]+', '', name).lower()
+
+def make_signature(name: str, price) -> str:
+    return f"{normalize_title(name)}_{price}"
+
+def format_price(price) -> str:
+    try:
+        return f"{int(float(str(price))):,}원"
+    except (ValueError, TypeError):
+        return "가격 미정"
+
+def add_seen(product_id: str):
+    """pid를 seen_products에 추가, 최대 크기 수동 관리"""
     if product_id in seen_products:
         return
-    if len(seen_order) >= MAX_SEEN_PRODUCTS:
-        old = seen_order[0]  # 가장 오래된 항목
+    if len(seen_products) >= MAX_SEEN_PRODUCTS:
+        old = seen_order.popleft()
         seen_products.discard(old)
     seen_products.add(product_id)
     seen_order.append(product_id)
 
-def post_discord(url, data):
-    """디스코드 전송 (timeout + 재시도)"""
+def add_signature(sig: str):
+    """signature를 seen_signatures에 추가, 최대 크기 수동 관리"""
+    if sig in seen_signatures:
+        return
+    if len(seen_signatures) >= MAX_SEEN_PRODUCTS:
+        old = sig_order.popleft()
+        seen_signatures.discard(old)
+    seen_signatures.add(sig)
+    sig_order.append(sig)
+
+
+# ─── Discord 전송 ───
+
+def post_discord(url: str, data: dict) -> bool:
+    """단일 웹훅 URL로 전송, timeout + 재시도"""
     for attempt in range(1, DISCORD_RETRIES + 2):
         try:
             r = requests.post(url, json=data, timeout=DISCORD_TIMEOUT)
@@ -104,28 +140,48 @@ def post_discord(url, data):
         time.sleep(2)
     return False
 
-def send_discord(message):
+def send_discord(message: str):
     data = {"content": message}
     for url in DISCORD_WEBHOOK_URLS:
         post_discord(url, data)
 
-def send_discord_embed(keyword, name, price, link, image_url, index):
+def send_discord_embed(keyword: str, name: str, price, link: str, image_url, index: int, is_similar: bool = False):
+    title = f"🔔 [{index}번째] {name}"
+    color = 0xFFA500 if is_similar else 0xFF6600  # 유사 매물은 색상 구분
+
+    fields = [
+        {"name": "키워드", "value": keyword, "inline": True},
+        {"name": "가격", "value": format_price(price), "inline": True},
+    ]
+    if is_similar:
+        fields.append({
+            "name": "⚠️ 유사 매물 감지",
+            "value": "이전에 동일한 제목+가격의 매물이 등록된 적 있습니다. 재등록일 수 있습니다.",
+            "inline": False,
+        })
+
     embed = {
-        "title": f"🔔 [{index}번째] {name}",
+        "title": title,
         "url": link,
-        "color": 0xFF6600,
-        "fields": [
-            {"name": "키워드", "value": keyword, "inline": True},
-            {"name": "가격", "value": f"{int(price):,}원" if str(price).isdigit() else f"{price}원", "inline": True},
-        ],
+        "color": color,
+        "fields": fields,
     }
     if image_url:
         embed["image"] = {"url": image_url}
+
     data = {"embeds": [embed]}
     for url in DISCORD_WEBHOOK_URLS:
         post_discord(url, data)
 
-def search_bunjang(keyword):
+
+# ─── 번개장터 검색 ───
+
+def search_bunjang(keyword: str, initial: bool = False) -> list:
+    """
+    keyword로 번개장터 검색.
+    initial=True 이면 알림 없이 기존 상품만 seen에 등록 (봇 시작 시 사용).
+    반환값: [(name, price, link, image_url), ...]  (initial=True면 항상 [])
+    """
     url = f"https://api.bunjang.co.kr/api/1/find_v2.json?q={keyword}&n=50&page=0&order=date"
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -147,15 +203,42 @@ def search_bunjang(keyword):
 
             data = response.json()
             new_items = []
+
             for item in data.get("list", []):
                 product_id = str(item.get("pid", ""))
-                if product_id and product_id not in seen_products:
+                if not product_id:
+                    continue
+
+                name  = item.get("name", "상품명 없음")
+                price = item.get("price", "")
+                link  = f"https://www.bunjang.co.kr/products/{product_id}"
+                image = item.get("product_image") or ""
+                if image:
+                    image = image.replace("{res}", "360")
+
+                sig = make_signature(name, price)
+
+                # 초기 스캔: seen에 등록만 하고 알림 없음
+                if initial:
                     add_seen(product_id)
-                    name = item.get("name", "상품명 없음")
-                    price = item.get("price", "")
-                    link = f"https://www.bunjang.co.kr/products/{product_id}"
-                    image = item.get("product_image", "").replace("{res}", "360")
-                    new_items.append((name, price, link, image or ""))
+                    add_signature(sig)
+                    continue
+
+                # pid 중복 체크
+                if product_id in seen_products:
+                    continue
+
+                # 재등록 감지: (정규화 제목 + 가격) 동일 → 차단 아닌 유사 표시
+                is_similar = sig in seen_signatures
+
+                add_seen(product_id)
+                if not is_similar:
+                    add_signature(sig)
+                else:
+                    print(f"[유사 매물] pid={product_id} / {name} ({format_price(price)})")
+
+                new_items.append((name, price, link, image or None, is_similar))
+
             return new_items
 
         except Exception as e:
@@ -165,6 +248,9 @@ def search_bunjang(keyword):
 
     print(f"[{keyword}] 최대 재시도 초과. 이번 사이클 건너뜀.")
     return []
+
+
+# ─── 메인 루프 ───
 
 def monitor():
     global item_counter
@@ -177,14 +263,14 @@ def monitor():
     print("=" * 40)
     send_discord("✅ 번개장터 감시 봇이 시작되었습니다!")
 
+    # 초기 스캔: 기존 상품 seen에 등록, 알림 없음
     print("기존 상품 스캔 중...")
     for keyword in KEYWORDS:
-        search_bunjang(keyword)
+        search_bunjang(keyword, initial=True)
         time.sleep(random.uniform(KEYWORD_DELAY_MIN, KEYWORD_DELAY_MAX))
     print("감시 시작!")
 
     while True:
-        # 가끔 긴 휴식 (걸리면 이번 사이클은 휴식만)
         if random.random() < LONG_BREAK_CHANCE:
             print(f"[{time.strftime('%H:%M:%S')}] 긴 휴식 중... ({LONG_BREAK_MIN}초)")
             time.sleep(LONG_BREAK_MIN)
@@ -193,27 +279,31 @@ def monitor():
         interval = random.uniform(CHECK_INTERVAL_MIN, CHECK_INTERVAL_MAX)
         print(f"[{time.strftime('%H:%M:%S')}] 확인 중... (다음 확인: {interval:.0f}초 후)")
 
-        # 키워드 순서 셔플 (패턴 회피)
         shuffled = KEYWORDS.copy()
         random.shuffle(shuffled)
 
         for keyword in shuffled:
             new_items = search_bunjang(keyword)
-            for name, price, link, image_url in new_items:
+            for name, price, link, image_url, is_similar in new_items:
                 item_counter += 1
-                print(f"[{item_counter}번째] 새 상품: {name} / {price}원")
-                send_discord_embed(keyword, name, price, link, image_url, item_counter)
+                tag = "[유사]" if is_similar else "[신규]"
+                print(f"[{item_counter}번째]{tag} {name} / {format_price(price)}")
+                send_discord_embed(keyword, name, price, link, image_url, item_counter, is_similar=is_similar)
             time.sleep(random.uniform(KEYWORD_DELAY_MIN, KEYWORD_DELAY_MAX))
 
         time.sleep(interval)
 
+
+# ─── 시그널 핸들러 ───
+
 def shutdown(signum, frame):
-   def shutdown(signum, frame):
     print("=" * 40, flush=True)
     print(f"🛑 봇 종료 (신호: {signum})", flush=True)
     print("=" * 40, flush=True)
     send_discord(f"🛑 봇이 종료되었습니다. (신호: {signum})")
     sys.exit(0)
+
+
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URLS:
         print("⚠️ 경고: 웹훅 URL이 하나도 설정되지 않았습니다! 환경변수를 확인하세요.")
