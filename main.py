@@ -33,6 +33,7 @@ MAX_RETRIES = 5
 MAX_SEEN_PRODUCTS = 2000
 DISCORD_TIMEOUT = 10
 DISCORD_RETRIES = 2
+SCHEMA_ALERT_COOLDOWN = 3600  # API 구조 변경 경고는 스팸 방지로 1시간에 한 번만
 # ================
 
 USER_AGENTS = [
@@ -86,6 +87,12 @@ seen_signatures = set()
 sig_order = deque()
 
 item_counter = 0
+_last_schema_alert = 0.0
+
+
+class SchemaChangedError(Exception):
+    """번개장터 응답 구조가 예상과 달라졌을 때 (결과 0건인 정상 케이스와는 구분)"""
+    pass
 
 # Session: 기본 헤더 누적 방지를 위해 headers를 매 요청마다 명시적으로 전달
 session = requests.Session()
@@ -180,15 +187,38 @@ def send_discord_embed(keyword: str, name: str, price, link: str, image_url, ind
 # ─── 번개장터 검색 ───
 
 def extract_products(data: dict) -> list:
-    """specs/keyword 응답(uiBlockList)에서 상품 리스트 블록만 추출"""
+    """
+    specs/keyword 응답(uiBlockList)에서 상품 리스트 블록(mainGrid)만 추출.
+    결과 0건인 정상 케이스는 mainGrid.searchResponse.data가 빈 리스트로 내려오므로 []를 반환하고,
+    mainGrid 자체를 못 찾거나 최상위 구조가 다르면 API가 바뀐 것으로 보고 SchemaChangedError를 던진다.
+    """
     try:
         blocks = data["data"]["searchSpec"]["uiBlockList"]
-    except (KeyError, TypeError):
-        return []
+    except (KeyError, TypeError) as e:
+        raise SchemaChangedError(f"최상위 구조 변경: {e}")
+
     for block in blocks:
         if block.get("id") == "mainGrid":
-            return block.get("searchResponse", {}).get("data", []) or []
-    return []
+            search_response = block.get("searchResponse")
+            if not isinstance(search_response, dict) or "data" not in search_response:
+                raise SchemaChangedError("mainGrid.searchResponse.data 누락")
+            return search_response.get("data") or []
+
+    raise SchemaChangedError("mainGrid 블록을 찾을 수 없음")
+
+
+def alert_schema_changed(keyword: str, reason: str):
+    """API 응답 구조 변경 감지 시 로그 + 디스코드 경고 (1시간에 한 번만, 스팸 방지)"""
+    global _last_schema_alert
+    print(f"[{keyword}] ⚠️ API 구조 변경 감지: {reason}")
+    now = time.time()
+    if now - _last_schema_alert < SCHEMA_ALERT_COOLDOWN:
+        return
+    _last_schema_alert = now
+    send_discord(
+        f"⚠️ 번개장터 API 응답 구조가 바뀐 것 같습니다 (키워드: {keyword})\n"
+        f"사유: {reason}\n코드 점검이 필요합니다."
+    )
 
 
 def search_bunjang(keyword: str, initial: bool = False) -> list:
@@ -218,9 +248,16 @@ def search_bunjang(keyword: str, initial: bool = False) -> list:
                 continue
 
             data = response.json()
+
+            try:
+                products = extract_products(data)
+            except SchemaChangedError as e:
+                alert_schema_changed(keyword, str(e))
+                return []
+
             new_items = []
 
-            for item in extract_products(data):
+            for item in products:
                 product_id = str(item.get("pid", ""))
                 if not product_id:
                     continue
