@@ -228,7 +228,8 @@ def search_bunjang(keyword: str, initial: bool = False) -> list:
     반환값: [(name, price, link, image_url), ...]  (initial=True면 항상 [])
     """
     # 구 find_v2.json API가 폐기되어 (CDN 레벨 404) 신규 search v8 API로 교체.
-    url = f"https://api.bunjang.co.kr/api/search/v8/pw/product/specs/keyword?q={keyword}"
+    # sort=latest: 기본값(score=정확도순)이면 인기 키워드일 때 신규 매물이 뒤로 밀려 놓칠 수 있어 최신순 고정.
+    url = f"https://api.bunjang.co.kr/api/search/v8/pw/product/specs/keyword?q={keyword}&sort=latest"
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
