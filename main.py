@@ -1,6 +1,9 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import re
 import requests
 import time
@@ -176,13 +179,26 @@ def send_discord_embed(keyword: str, name: str, price, link: str, image_url, ind
 
 # ─── 번개장터 검색 ───
 
+def extract_products(data: dict) -> list:
+    """specs/keyword 응답(uiBlockList)에서 상품 리스트 블록만 추출"""
+    try:
+        blocks = data["data"]["searchSpec"]["uiBlockList"]
+    except (KeyError, TypeError):
+        return []
+    for block in blocks:
+        if block.get("id") == "mainGrid":
+            return block.get("searchResponse", {}).get("data", []) or []
+    return []
+
+
 def search_bunjang(keyword: str, initial: bool = False) -> list:
     """
     keyword로 번개장터 검색.
     initial=True 이면 알림 없이 기존 상품만 seen에 등록 (봇 시작 시 사용).
     반환값: [(name, price, link, image_url), ...]  (initial=True면 항상 [])
     """
-    url = f"https://api.bunjang.co.kr/api/1/find_v2.json?q={keyword}&n=50&page=0&order=date"
+    # 구 find_v2.json API가 폐기되어 (CDN 레벨 404) 신규 search v8 API로 교체.
+    url = f"https://api.bunjang.co.kr/api/search/v8/pw/product/specs/keyword?q={keyword}"
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -204,7 +220,7 @@ def search_bunjang(keyword: str, initial: bool = False) -> list:
             data = response.json()
             new_items = []
 
-            for item in data.get("list", []):
+            for item in extract_products(data):
                 product_id = str(item.get("pid", ""))
                 if not product_id:
                     continue
@@ -212,7 +228,7 @@ def search_bunjang(keyword: str, initial: bool = False) -> list:
                 name  = item.get("name", "상품명 없음")
                 price = item.get("price", "")
                 link  = f"https://www.bunjang.co.kr/products/{product_id}"
-                image = item.get("product_image") or ""
+                image = item.get("productImage") or ""
                 if image:
                     image = image.replace("{res}", "360")
 
